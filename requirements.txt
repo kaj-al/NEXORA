@@ -1,0 +1,13 @@
+requests
+moviepy
+openai-whisper
+faster-whisper
+yt-dlp
+pydub
+streamlit
+gtts
+deep-translator
+pandas
+python-dotenv
+whois
+seaborn
