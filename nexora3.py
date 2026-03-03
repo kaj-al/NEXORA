@@ -8,7 +8,7 @@ import random
 import pandas as pd
 from config import llm_model,model_size,openrouter_key_input
 from tab1 import call_openrouter,load_whisper_model, download_youtube_audio, extract_audio, notes, save_audio, split, transcribe_chunk,  generate_notes, convert_mp3, translate_speech_to_speech
-from tab6 import load_data,add,detect_level,get_learning_stats,recommendation
+from tab5 import load_data,add,detect_level,get_learning_stats,recommendation
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Nexora", page_icon="📘", layout="wide")
@@ -35,7 +35,7 @@ if st.session_state["whisper_model_size"] != model_size:
 model = load_whisper_model(model_size)
 
 # ---------------- MAIN TABS ----------------
-tabs = st.tabs(["Home", "Video Notes", "Study Assistant", "Saved Notes", "Asessment Paper","About","Analysis"])
+tabs = st.tabs(["Home", "Video Notes", "Study Assistant", "Saved Notes", "Asessment Paper","Analysis","About",])
 
 # Pastel Zen Theme + White Tabs Text
 st.markdown("""
@@ -336,7 +336,7 @@ with tabs[4]:
 
 
 # ---------------- ABOUT TAB ----------------
-with tabs[5]:
+with tabs[6]:
     st.header("About Nexora")
     st.markdown("""
     *Nexora* combines:
@@ -352,7 +352,7 @@ with tabs[5]:
 
     """)
 
-with tabs[6]:
+with tabs[5]:
     st.header("Nexora - Learning Analytics & Next Support")
     
     data = load_data()
