@@ -35,12 +35,14 @@ OPENROUTER_AUDIO_URL=https://openrouter.ai/api/v1/audio/transcriptions
 - **Study Notes Generation**: AI-powered structured study notes from transcripts
 - **Speech Synthesis**: Convert text back to speech in multiple languages
 - **YouTube Support**: Download and transcribe audio from YouTube videos
+- **Recommendation and tracking**: it detect your level according to the format of studying and store history and recommend the next 5 topics and the sources
+
 
 ## File Structure
 
 - `openrouter.py` - OpenRouter API integration
 - `tab1.py` - Core transcription and notes generation features
-- `tab6.py` - User data management and level detection
+- `tab5.py` - User data management ,level detection, recommendation system 
 - `nexora3.py` - Main application entry point
 - `.env` - Environment variables (local only, not in git)
 - `.gitignore` - Git ignore rules
