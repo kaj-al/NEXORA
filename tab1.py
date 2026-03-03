@@ -13,7 +13,23 @@ from gtts import gTTS
 from deep_translator import GoogleTranslator
 import streamlit as st
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
  
+def create_requests_session(retries=3, backoff_factor=0.5, timeout=30):
+    """Create a requests session with automatic retry logic"""
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
 def call_openrouter(api_key, prompt, model="gpt-4o-mini", temperature=0.2, max_tokens=800):
     url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
     headers = {
@@ -29,16 +45,24 @@ def call_openrouter(api_key, prompt, model="gpt-4o-mini", temperature=0.2, max_t
         "temperature": temperature,
         "max_tokens": max_tokens
     }
-    r = requests.post(url, headers=headers, json=payload, timeout=120)
-    if r.status_code == 200:
-        j = r.json()
-        # safe navigation
-        try:
-            return j["choices"][0]["message"]["content"]
-        except Exception:
-            return r.text
-    else:
-        return f"ERROR {r.status_code}: {r.text}"
+    try:
+        session = create_requests_session(retries=3, backoff_factor=1)
+        r = session.post(url, headers=headers, json=payload, timeout=120)
+        if r.status_code == 200:
+            j = r.json()
+            # safe navigation
+            try:
+                return j["choices"][0]["message"]["content"]
+            except Exception:
+                return r.text
+        else:
+            return f"ERROR {r.status_code}: {r.text}"
+    except requests.exceptions.ConnectionError as e:
+        return f"Connection error: Unable to reach OpenRouter API. Please check your internet connection. Details: {str(e)}"
+    except requests.exceptions.Timeout:
+        return f"Timeout error: The request took too long. Please try again."
+    except Exception as e:
+        return f"Error: {str(e)}"
     
 def load_whisper_model(model_size="base"):
     return whisper.load_model(model_size)
@@ -144,11 +168,18 @@ def notes(transcript):
         ]
     }
     url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
-    response = requests.post(url, headers=headers, json=payload, timeout=60)
-    response.raise_for_status()
-    result = response.json()
-
-    return result["choices"][0]["message"]["content"]
+    try:
+        session = create_requests_session(retries=3, backoff_factor=1)
+        response = session.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except requests.exceptions.ConnectionError as e:
+        raise Exception(f"Connection error: Unable to reach OpenRouter API. Please check your internet connection.")
+    except requests.exceptions.Timeout:
+        raise Exception(f"Timeout error: The request took too long. Please try again.")
+    except Exception as e:
+        raise Exception(f"Error generating notes: {str(e)}")
 
 
 def save_audio(uploaded_audio):
@@ -178,27 +209,35 @@ def transcribe(chunk_path):
         "HTTP-Referer": "http://localhost:8501",
         "X-Title": "NEXORA AUDIO TRANSCRIPTION"
     }
-    with open(chunk_path, "rb") as audio_file:
-        files = {
-            "file": audio_file
-        }
-        data = {
-            "model": "openai/whisper-1",
-            "response_format": "text"
-        }
-        response = requests.post(
-            url,
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=120
-        )
-    if response.status_code != 200:
-        raise Exception(f"Transcription failed: {response.status_code} - {response.text}")
-    result = response.text.strip()
-    if not result:
-        raise Exception("Transcription returned empty result")
-    return result
+    try:
+        session = create_requests_session(retries=3, backoff_factor=1)
+        with open(chunk_path, "rb") as audio_file:
+            files = {
+                "file": audio_file
+            }
+            data = {
+                "model": "openai/whisper-1",
+                "response_format": "text"
+            }
+            response = session.post(
+                url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120
+            )
+        if response.status_code != 200:
+            raise Exception(f"Transcription failed: {response.status_code} - {response.text}")
+        result = response.text.strip()
+        if not result:
+            raise Exception("Transcription returned empty result")
+        return result
+    except requests.exceptions.ConnectionError as e:
+        raise Exception(f"Connection error: Unable to reach OpenRouter API. Please check your internet connection.")
+    except requests.exceptions.Timeout:
+        raise Exception(f"Timeout error: The transcription request took too long. Please try again.")
+    except Exception as e:
+        raise Exception(f"Transcription error: {str(e)}")
     
 def transcribe_chunk(chunks):
     transcript_parts = [None] * len(chunks)
@@ -218,14 +257,23 @@ def transcribe_chunk(chunks):
         return idx, ""
     
     # Use ThreadPoolExecutor for parallel transcription (6 workers for faster processing)
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        futures = {executor.submit(transcribe_with_retry, i, chunk): i for i, chunk in enumerate(chunks)}
-        for future in as_completed(futures):
-            idx, text = future.result()
-            transcript_parts[idx] = text + "\n" if text else ""
-    
-    transcript = "".join(filter(None, transcript_parts))
-    return transcript
+    try:
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = {executor.submit(transcribe_with_retry, i, chunk): i for i, chunk in enumerate(chunks)}
+            for future in as_completed(futures):
+                try:
+                    idx, text = future.result()
+                    transcript_parts[idx] = text + "\n" if text else ""
+                except Exception as e:
+                    print(f"Error in chunk transcription: {str(e)}")
+                    raise
+        
+        transcript = "".join(filter(None, transcript_parts))
+        return transcript
+    except requests.exceptions.ConnectionError as e:
+        raise Exception(f"Connection error during transcription: Unable to reach OpenRouter API. Please check your internet connection.")
+    except Exception as e:
+        raise Exception(f"Error during chunk transcription: {str(e)}")
         
 def generate_notes(transcript):
     url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions")
@@ -262,47 +310,63 @@ def generate_notes(transcript):
             "max_tokens": 700
         }
 
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        if response.status_code != 200:
-            raise Exception(f"Notes generation failed for chunk {idx+1}: {response.status_code}")
-        result = response.json()
-        chunk_content = result["choices"][0]["message"]["content"]
-        return idx, chunk_content
+        try:
+            session = create_requests_session(retries=3, backoff_factor=1)
+            response = session.post(url, headers=headers, json=payload, timeout=60)
+            if response.status_code != 200:
+                raise Exception(f"Notes generation failed for chunk {idx+1}: {response.status_code}")
+            result = response.json()
+            chunk_content = result["choices"][0]["message"]["content"]
+            return idx, chunk_content
+        except requests.exceptions.ConnectionError as e:
+            raise Exception(f"Connection error while processing chunk {idx+1}: Unable to reach OpenRouter API. Please check your internet connection.")
+        except requests.exceptions.Timeout:
+            raise Exception(f"Timeout error while processing chunk {idx+1}: The request took too long. Please try again.")
+        except Exception as e:
+            raise Exception(f"Error processing chunk {idx+1}: {str(e)}")
 
     # Process chunks in parallel (5 workers for faster generation)
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(process_chunk, i, chunk): i for i, chunk in enumerate(chunks)}
-        for future in as_completed(futures):
-            idx, content = future.result()
-            chunk_notes[idx] = content
+    try:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(process_chunk, i, chunk): i for i, chunk in enumerate(chunks)}
+            for future in as_completed(futures):
+                idx, content = future.result()
+                chunk_notes[idx] = content
 
-    # If only one chunk, return it directly
-    if len(chunk_notes) == 1:
-        return chunk_notes[0]
+        # If only one chunk, return it directly
+        if len(chunk_notes) == 1:
+            return chunk_notes[0]
 
-    # Consolidate notes
-    consolidation_prompt = (
-        "You are an expert study assistant. Combine the following partial notes into a single, coherent set of study notes. "
-        "Remove duplication, merge related points, order topics logically, and produce a short summary (2-4 sentences) at the top. Keep headings concise and use bullet points."
-    )
-    consolidation_input = "\n\n".join(chunk_notes)
-    consolidation_messages = [
-        {"role": "system", "content": consolidation_prompt},
-        {"role": "user", "content": consolidation_input}
-    ]
+        # Consolidate notes
+        consolidation_prompt = (
+            "You are an expert study assistant. Combine the following partial notes into a single, coherent set of study notes. "
+            "Remove duplication, merge related points, order topics logically, and produce a short summary (2-4 sentences) at the top. Keep headings concise and use bullet points."
+        )
+        consolidation_input = "\n\n".join(chunk_notes)
+        consolidation_messages = [
+            {"role": "system", "content": consolidation_prompt},
+            {"role": "user", "content": consolidation_input}
+        ]
 
-    payload2 = {
-        "model": "anthropic/claude-3.5-sonnet",
-        "messages": consolidation_messages,
-        "temperature": 0.5,
-        "max_tokens": 1000
-    }
+        payload2 = {
+            "model": "anthropic/claude-3.5-sonnet",
+            "messages": consolidation_messages,
+            "temperature": 0.5,
+            "max_tokens": 1000
+        }
 
-    response = requests.post(url, headers=headers, json=payload2, timeout=90)
-    if response.status_code != 200:
-        raise Exception(f"Notes consolidation failed: {response.status_code}")
-    result = response.json()
-    return result["choices"][0]["message"]["content"]
+        session = create_requests_session(retries=3, backoff_factor=1)
+        response = session.post(url, headers=headers, json=payload2, timeout=90)
+        if response.status_code != 200:
+            raise Exception(f"Notes consolidation failed: {response.status_code}")
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    except requests.exceptions.ConnectionError as e:
+        raise Exception(f"Connection error: Unable to reach OpenRouter API. Please check your internet connection.")
+    except requests.exceptions.Timeout:
+        raise Exception(f"Timeout error: The request took too long. Please try again.")
+    except Exception as e:
+        raise Exception(f"Error generating notes: {str(e)}")
     
 def convert_mp3(input_path):
         try:
