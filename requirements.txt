@@ -11,3 +11,8 @@ pandas
 python-dotenv
 whois
 seaborn
+langchain
+faiss-cpu
+sentence-transformers
+langchain-community
+ollama 
