@@ -4,12 +4,15 @@ from langchain_community.llms import Ollama
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import DirectoryLoader
 from langchain_community.chains import PebbloRetrievalQA
-from langchain.vectors import FAISS # type: ignore
+from langchain_community.vectorstores import FAISS 
 
 VECTORSTORE_PATH = "vectorstore/nexora_faiss"
 
 def get_embeddings():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+def get_llm():
+    return Ollama(model="llama3.1")  #llama3.1:8b-q4 
 
 def vectorstore():
     loader = DirectoryLoader("documents/",glob="**/*.txt")
@@ -27,13 +30,17 @@ def vectorstore():
     vectorstore.save_local(VECTORSTORE_PATH)
     return vectorstore
 
-def llm():
-    return Ollama(model="llama3.1")  #llama3.1:8b-q4
+def load_vectorstore():
+    embeddings = get_embeddings()
+    if os.path.exists(VECTORSTORE_PATH):
+        return FAISS.load_local(VECTORSTORE_PATH,embeddings)
+    else:
+        return vectorstore()
 
 # connect llm and vectorstore
 def qa_chain():
-    llm = llm()
-    vectorstore = vectorstore()
+    llm = get_llm()
+    vectorstore = load_vectorstore()
     # top 3
     retriever = vectorstore.as_retriever(search_kwargs={"k":3})
     chain = PebbloRetrievalQA.from_chain_type(

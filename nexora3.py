@@ -9,6 +9,7 @@ import pandas as pd
 from config import llm_model,model_size,openrouter_key_input
 from tab1 import call_openrouter,load_whisper_model, download_youtube_audio, extract_audio, notes, save_audio, split, transcribe_chunk,  generate_notes, convert_mp3, translate_speech_to_speech
 from tab5 import load_data,add,detect_level,get_learning_stats,recommendation
+from tab6 import qa_chain
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="Nexora", page_icon="📘", layout="wide")
@@ -35,7 +36,7 @@ if st.session_state["whisper_model_size"] != model_size:
 model = load_whisper_model(model_size)
 
 # ---------------- MAIN TABS ----------------
-tabs = st.tabs(["Home", "Video Notes", "Study Assistant", "Saved Notes", "Asessment Paper","Analysis","About",])
+tabs = st.tabs(["Home", "Video Notes", "Study Assistant", "Saved Notes", "Asessment Paper","Analysis","NEXCHAT","About",])
 
 # Pastel Zen Theme + White Tabs Text
 st.markdown("""
@@ -336,7 +337,7 @@ with tabs[4]:
 
 
 # ---------------- ABOUT TAB ----------------
-with tabs[6]:
+with tabs[7]:
     st.header("About Nexora")
     st.markdown("""
     *Nexora* combines:
@@ -438,7 +439,27 @@ with tabs[5]:
     """)
     
         
+with tabs[7]:
+    st.header("NEXCHAT")
+    st.write("Nexchat!!, Ask Anything")
+
+    chain = qa_chain()
+
+    if "history" not in st.session_state:
+        st.session_state.history=[]
+
+    query = st.text_input("Ask question")
+
+    if query:
+        with st.spinner("Thinking..."):
+            result = chain.run(query)
+        st.session_state.history.append({"query":query,"answer":result})
     
+    for chat in st.session_state.history[::-1]:
+        st.markdown(f"**You:**{chat['query']}")
+        st.markdown(f"**Nexora:**{chat['answer']}")
+        
+
     
     
     
