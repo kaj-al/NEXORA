@@ -7,7 +7,8 @@ from pathlib import Path
 import random
 import pandas as pd
 from config import llm_model,model_size,openrouter_key_input
-from tab1 import call_openrouter,load_whisper_model, download_youtube_audio, extract_audio, notes, save_audio, split, transcribe_chunk,  generate_notes, convert_mp3, translate_speech_to_speech
+from tab1 import call_openrouter,load_whisper_model, download_youtube_audio, extract_audio, translate_speech_to_speech
+from notes_generation import transcription,gen_notes
 from tab5 import load_data,add,detect_level,get_learning_stats,recommendation
 from tab6 import qa_chain
 
@@ -184,38 +185,23 @@ with tabs[1]:
 
     # generate notes
     
-    uploaded_audio = st.file_uploader("Upload Lecture Audio(MP3 / WAV)", type=["mp3","wav"])
+    uploaded_audio = st.file_uploader("Upload Lecture Audio(MP3 / WAV)", type=["mp3","wav","m4a"])
     if uploaded_audio:
-        st.audio(uploaded_audio)
-        if st.button("Generate transcript and notes"):
-            with st.spinner("Processing audio... (this may take 1-2 minutes)"):
-                try:
-                    audio_path = save_audio(uploaded_audio)
-                    audio_path = convert_mp3(audio_path)
-                    chunks = split(audio_path, chunk_min=2)
-                    
-                    with st.spinner("Transcribing audio chunks..."):
-                        transcript = transcribe_chunk(chunks)
-                    st.session_state["transcript"] = transcript
-                    
-                    with st.spinner("Generating study notes from transcript..."):
-                        notes_content = generate_notes(transcript)
-                    
-                    st.subheader("TRANSCRIPT")
-                    st.text_area("Transcript", transcript, height=250)
-                    st.subheader("NOTES")
-                    st.markdown(notes_content)
-                    st.download_button(
-                        "Download Notes",
-                        data=notes_content,
-                        file_name="Nexora_Notes.txt"
-                    )
-                    st.success("Notes generated successfully!")
-                except Exception as e:
-                    st.error(f"Error generating notes: {str(e)}")
-
-    
-            
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(uploaded_audio.read())
+            audio_path = tmp.name
+        st.success("Audio uploaded successfully")
+        if st.button("Generate transcript"):
+            with st.spinner("Generating..."):
+                transcript = transcription(audio_path)
+            st.subheader("Transcript")
+            st.write(transcript)
+            if st.button("Generate Notes"):
+                with st.spinner("Generating..."):
+                    notes = gen_notes(audio_path)
+                st.subheader("Transcript")
+                st.write(transcript)
+         
 # ---------------- STUDY ASSISTANT TAB ----------------
 with tabs[2]:
     st.header("Study Assistant (Text Input)")

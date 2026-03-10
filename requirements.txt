@@ -15,4 +15,7 @@ langchain
 faiss-cpu
 sentence-transformers
 langchain-community
-ollama 
+ollama
+whisper
+torch
+langchain-groq
