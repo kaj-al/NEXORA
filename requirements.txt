@@ -19,3 +19,6 @@ ollama
 whisper
 torch
 langchain-groq
+unstructured
+langgraph-checkpoint
+langchain-agents
