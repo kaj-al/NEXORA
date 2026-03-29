@@ -3,17 +3,15 @@ import streamlit as st
 import tempfile
 import os
 import requests
-from pathlib import Path
 import random
-import pandas as pd
 from config import llm_model,model_size,openrouter_key_input
-from tab1 import call_openrouter,load_whisper_model, download_youtube_audio, extract_audio, translate_speech_to_speech
-from notes_generation import transcription,gen_notes
-from tab5 import load_data,add,detect_level,get_learning_stats,recommendation
-from tab6 import qa_chain
+from tab1 import call_openrouter,load_whisper_model, download_audio_fast, extract_audio
+from tab4 import documentation,youtube
+from transcription import process_audio
+
 
 # ---------------- PAGE CONFIG ----------------
-st.set_page_config(page_title="Nexora", page_icon="📘", layout="wide")
+st.set_page_config(page_title="Nexora",layout="wide")
 st.title("NEXORA - NEXT GEN NOTES AURA")
 
 # ---------------- STYLE ----------------
@@ -37,7 +35,7 @@ if st.session_state["whisper_model_size"] != model_size:
 model = load_whisper_model(model_size)
 
 # ---------------- MAIN TABS ----------------
-tabs = st.tabs(["Home", "Video Notes", "Study Assistant", "Saved Notes", "Asessment Paper","Analysis","NEXCHAT","About",])
+tabs = st.tabs(["Home", "Audio Extraction & Transcription", "Study Notes", "Asessment Paper","Recommendation"])
 
 # Pastel Zen Theme + White Tabs Text
 st.markdown("""
@@ -106,15 +104,17 @@ with tabs[0]:
                 "<p style='color:#cfeef0;'>Combine video-based notes (YouTube / upload) and text-based study assistant in one app.</p></div>", unsafe_allow_html=True)
     st.markdown("""
     *Features*
-    - Upload a local lecture video or paste a YouTube link → extract audio → Whisper transcription → OpenRouter notes.
+    - Upload a local lecture video or paste a YouTube link → extract audio → transcription .
     - Paste text or lecture transcript to generate *concise study notes, **key points, and **a study plan*.
-    - Save generated notes locally and browse them in "Saved Notes".
+    - Save generated notes locally .
+    - Generate a Assesment Paper.
+    - Try Raecommendation for youtube videos and documentations.
     """)
 
-# ---------------- VIDEO NOTES TAB ----------------
+# ---------------- VIDEO Audio TAB ----------------
 with tabs[1]:
-    st.header("Video Notes")
-    st.write("Upload a video file or provide a YouTube link. Nexora will extract audio, transcribe, and generate study notes.")
+    st.header("Audio Extraction & Transcription")
+    st.write("Upload a video file or provide a YouTube link. Nexora will extract audio and transcribe")
     source = st.radio("Source", ["Upload video", "YouTube link"], horizontal=True)
 
     video_file_path = None
@@ -133,19 +133,19 @@ with tabs[1]:
         yt_url = st.text_input("YouTube URL")
         if st.button("Download YouTube audio"):
             try:
-                audio_path = download_youtube_audio(yt_url)
-                if os.path.exists(audio_path):
-                    st.success("downloaded")
-                    st.audio(audio_path)
-                else: 
-                    st.error("not created")
+                with st.spinner("Downloading audio..."):
+                    audio_path = download_audio_fast(yt_url)
+                    if os.path.exists(audio_path):
+                        st.success("downloaded")
+                        st.audio(audio_path)
+                    else: 
+                        st.error("not created")
             except Exception as e:
                 st.error(f"failed: {e}")
 
             #  generate audio
     if video_file_path:
         st.markdown("---")
-        st.info("Step 1: Extract audio and generate notes.")
         if st.button("Extract audio"):
             audio_file = extract_audio(video_file_path, audio_ext=".wav")
             st.audio(audio_file)
@@ -161,78 +161,44 @@ with tabs[1]:
                     mime="audio/wav"
                 )
 
-        if "org_audio" in st.session_state:
-            language_map = {
-                "Hindi": "hi",
-                "English": "en",
-                "Japanese": "ja",
-                "French": "fr",
-                "German": "de",
-                "Spanish": "es"
-            }
-            select_lang = st.selectbox("Select language", list(language_map.keys()))
-            if st.button("Translate Speech to Speech"):
-                with st.spinner("Processing speech-to-speech translation..."):
-                    try:
-                        out_audio = translate_speech_to_speech(
-                            st.session_state["org_audio"],
-                            language_map[select_lang]
-                        )
-                        st.success(f" Speech translated to {select_lang} successfully!")
-                        st.audio(out_audio)
-                    except Exception as e:
-                        st.error(f"Translation error: {e}")
-
-    # generate notes
-    
-    uploaded_audio = st.file_uploader("Upload Lecture Audio(MP3 / WAV)", type=["mp3","wav","m4a"])
-    if uploaded_audio:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(uploaded_audio.read())
-            audio_path = tmp.name
-        st.success("Audio uploaded successfully")
-        if st.button("Generate transcript"):
-            with st.spinner("Generating..."):
-                transcript = transcription(audio_path)
+# Transcription
+    file = st.file_uploader("Upload Audio", type=["wav","mp3","m4a"])
+    if file:
+        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp.write(file.read())
+        audio_path = temp.name
+        st.audio(audio_path)
+        if st.button("Generate Transcript"):
+            with st.spinner("Processing..."):
+                transcript = process_audio(audio_path)
+            st.success("Done!")
             st.subheader("Transcript")
             st.write(transcript)
-            if st.button("Generate Notes"):
-                with st.spinner("Generating..."):
-                    notes = gen_notes(audio_path)
-                st.subheader("Transcript")
-                st.write(transcript)
-         
-# ---------------- STUDY ASSISTANT TAB ----------------
+
+# ---------------- STUDY Notes TAB ----------------
 with tabs[2]:
-    st.header("Study Assistant (Text Input)")
+    st.header("Study Notes (Text Input)")
     st.write(f"Paste any lecture transcript or text")
     user_text = st.text_area("Paste transcript or lecture text here", height=240)
     if user_text:
         st.markdown("Options for generation:")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Generate Notes (OpenRouter)"):
-                if not openrouter_key_input:
-                    st.warning("Add OpenRouter API key in sidebar first.")
-                else:
+            if st.button("Generate Notes"):
                     with st.spinner("Generating notes..."):
                         prompt = f"Generate structured study notes, key points, and a short summary from this text:\n\n{user_text}"
                         notes_out = call_openrouter(openrouter_key_input, prompt, model=llm_model)
-                        st.markdown("###AI Notes")
-                        st.markdown(f"<div class='box'>{notes_out}</div>", unsafe_allow_html=True)
+                        st.markdown("Nexora Notes")
+                        st.markdown(f"<div class='box' , style='color:black'>{notes_out}</div>",unsafe_allow_html=True)
                         st.download_button("Download Notes", notes_out, file_name="studyzen_notes.txt")
         with col2:
             if st.button("Create Study Plan"):
-                if not openrouter_key_input:
-                    st.warning("Add OpenRouter API key in sidebar first.")
-                else:
                     with st.spinner("Creating study plan..."):
                         prompt = f"Create a study plan with daily goals and 5 practice questions based on this content:\n\n{user_text}"
                         plan = call_openrouter(openrouter_key_input, prompt, model=llm_model)
-                        st.markdown("### Study Plan")
-                        st.markdown(f"<div class='box'>{plan}</div>", unsafe_allow_html=True)
+                        st.markdown("Study Plan")
+                        st.markdown(f"<div class='box', style='color:black'>{plan}</div>", unsafe_allow_html=True)
         
-
 #  Feeling Spontaneous? Get Random Study Tips
         st.subheader("Feeling Spontaneous?")
         if st.button("I need a Study Tip!", use_container_width=True):
@@ -250,45 +216,20 @@ with tabs[2]:
             ]
             st.write(f"**Study Tip:** {random.choice(study_tips)}")
 
-
-# ---------------- SAVED NOTES TAB ----------------
+# ----------------- AI Assessment Generator -----------------
 with tabs[3]:
-    st.header(" Saved Notes")
-    folder = Path("studyzen_saved")
-    folder.mkdir(exist_ok=True)
-    files = sorted(folder.glob("*.txt"), reverse=True)
-    if not files:
-        st.info("No saved notes yet.")
-    else:
-        choice = st.selectbox("Open saved note:", [f.name for f in files])
-        if choice:
-            content = Path(folder / choice).read_text(encoding="utf-8")
-            st.markdown(f"### {choice}")
-            st.text_area("Content", content, height=400)
-            if st.button("Delete this note"):
-                os.remove(folder / choice)
-                st.success("Deleted.")
-                st.experimental_rerun()
-
-# ----------------- AI Assessment Generator Section -----------------
-with tabs[4]:
     st.markdown("## AI Assessment Paper Generator")
-
     st.markdown("""
         <p style='color:#22223b; font-size:17px;'>
             Type any subject or topic, and AI will create a quiz or assessment paper with questions, options, and answers.
         </p>
     """, unsafe_allow_html=True)
-
-    topic = st.text_input("Enter Subject or Topic:", placeholder="e.g., Machine Learning Basics, Python Loops, DBMS Keys")
-
+    topic = st.text_input("Enter Subject or Topic:", placeholder="Topic...")
     difficulty = st.selectbox("Select Difficulty Level:", ["Easy", "Medium", "Hard"])
     num_questions = st.slider("Number of Questions:", 5, 20, 10)
-
     generate_btn = st.button("Generate Assessment Paper")
-
     if generate_btn and topic:
-        with st.spinner("AI is preparing your assessment paper... ⏳"):
+        with st.spinner("AI is preparing your assessment paper..."):
             try:
                 headers = {
                     "Authorization": f"Bearer {openrouter_key_input}",
@@ -310,143 +251,58 @@ with tabs[4]:
                         <pre>{ai_output}</pre>
                     </div>
                 """, unsafe_allow_html=True)
-
                 st.download_button(
                     label="Download Assessment Paper",
                     data=ai_output,
                     file_name=f"{topic.replace(' ', '_')}_assessment.txt",
                     mime="text/plain"
                 )
-
             except Exception as e:
                 st.error(f"Error generating assessment: {e}")  
 
+# # ---------------- ABOUT TAB ----------------
+# with tabs[5]:
+#     st.header("About Nexora")
+#     st.markdown("""
+#     *Nexora* combines:
+#     - Whisper for transcription (local model)
+#     - OpenRouter LLMs for notes & study plans
+#     - YouTube & local video support
+#     - Lightweight local saving for a simple knowledge base
 
-# ---------------- ABOUT TAB ----------------
-with tabs[7]:
-    st.header("About Nexora")
-    st.markdown("""
-    *Nexora* combines:
-    - Whisper for transcription (local model)
-    - OpenRouter LLMs for notes & study plans
-    - YouTube & local video support
-    - Lightweight local saving for a simple knowledge base
+#     *How to use*
+#     1. Choose Video Notes or Study Assistant.
+#     2. Gives an assesment.
+#     3. Generate, review, save, and download.
 
-    *How to use*
-    1. Choose Video Notes or Study Assistant.
-    2. Gives an assesment.
-    3. Generate, review, save, and download.
+#     """)
 
-    """)
-
-with tabs[5]:
-    st.header("Nexora - Learning Analytics & Next Support")
-    
-    data = load_data()
-    df = pd.DataFrame(data) if data else pd.DataFrame()
-
-    #Metrics
-    if data:
-        level,active_days = detect_level(data)
-        stats = get_learning_stats(data)
-    else:
-        level,active_days = "Beginner" , 0
-        stats = {"total_entries": 0, "active_days": 0, "formats": {}, "recent_topics": []}
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Level", level)
-    col2.metric("Active Days", active_days)
-    col3.metric("Total Entries", stats["total_entries"])
-
-    st.divider()
-
-    # Learning breakdown
-    if stats["formats"]:
-        st.subheader("Learning Formats Distribution")
-        col_fmt1, col_fmt2 = st.columns(2)
-        with col_fmt1:
-            st.bar_chart(pd.Series(stats["formats"]))
-        with col_fmt2:
-            st.write("**Format Breakdown:**")
-            for fmt, count in stats["formats"].items():
-                st.write(f"- {fmt}: {count}")
-
-    st.divider()
-
-    # Recent learning with button
-    if st.button("View Recent Topics"):
-        if stats["recent_topics"]:
-            st.subheader("Recent Topics")
-            for topic in stats["recent_topics"]:
-                st.write(f"• {topic}")
-        else:
-            st.info("No recent topics yet. Start logging to see your recent learning!")
-
-    st.divider()
-
-    st.subheader("Log learning")
-    query = st.text_input("Topic")
-    format = st.selectbox("Format",["video","audio","pdf","notes"])
-    if st.button("Save"):
-        if query and query.strip():
-            try:
-                add(query, format)
-                st.success("Saved")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error saving: {str(e)}")
-        else:
-            st.warning("Please enter a topic")
-    
-    st.divider()
-
-    # AI Recommendations
-    st.subheader("AI Learning Recommendations")
-    rec_topic = st.text_input("Enter a topic to get recommendations for:")
-    if st.button("Get Study Recommendations"):
-        if rec_topic and rec_topic.strip():
-            with st.spinner("Generating personalized recommendations..."):
-                try:
-                    rec = recommendation(rec_topic, level)
-                    st.markdown(rec)
-                except Exception as e:
-                    st.error(f"Error generating recommendations: {str(e)}")
-        else:
-            st.warning("Please enter a topic to get recommendations")
-
-    st.divider()
-
-    st.markdown("""
-                ### INSIGHT SUMMARY
-                - Analysis is based on transcript, notes and assessment comparison
-                - Weak areas are automatically detected
-                - Study guidance adapts to learner's understanding level
-                - Helps students focus on what matters most
-    """)
-    
-        
-with tabs[7]:
-    st.header("NEXCHAT")
-    st.write("Nexchat!!, Ask Anything")
-
-    chain = qa_chain()
-
-    if "history" not in st.session_state:
-        st.session_state.history=[]
-
-    query = st.text_input("Ask question")
-
-    if query:
-        with st.spinner("Thinking..."):
-            result = chain.run(query)
-        st.session_state.history.append({"query":query,"answer":result})
-    
-    for chat in st.session_state.history[::-1]:
-        st.markdown(f"**You:**{chat['query']}")
-        st.markdown(f"**Nexora:**{chat['answer']}")
-        
-
-    
-    
-    
-    
+with tabs[4]:
+    st.title("Knowledge Explorer")
+    topic = st.text_input("Enter a topic to explore:")
+    level = st.selectbox("Select your expertise level:",["School","Senior School","College","Researcher"])
+    if st.button("Explore"):
+        query = topic + "for " +level + " students"
+        videos = youtube(query)
+        docs = documentation(query)
+        # papers_list = papers(query)
+        st.header("YouTube Videos")
+        for video in videos:
+            col1,col2 = st.columns([1,3])
+            with col1:
+                if video["thumbnail"]:
+                    st.image(video["thumbnail"],width=140)
+            with col2:
+                st.markdown(f"###[{video['title']}]({video['url']})")
+                st.write(f"Channel:{video['channel']}")
+                st.write(f"Duration:{video['duration']}")
+            st.divider()
+            # st.video(video["url"])
+        st.header("Documentation")
+        for doc in docs:
+            st.markdown(f"[{doc['title']}]({doc['url']})")
+        # if level in ["College","Researcher"]:
+        #     st.header("Research Papers")
+        #     for paper in papers_list:
+        #         st.markdown(f"[{paper['title']}]({paper['url']})")
+            
