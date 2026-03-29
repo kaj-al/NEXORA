@@ -20,8 +20,6 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
 OPENROUTER_AUDIO_URL=https://openrouter.ai/api/v1/audio/transcriptions
 ```
 
-**Important:** Never commit the `.env` file to version control. It's already in `.gitignore` for security.
-
 ### 3. Getting Your API Key
 
 - Register at [OpenRouter](https://openrouter.ai)
@@ -31,18 +29,16 @@ OPENROUTER_AUDIO_URL=https://openrouter.ai/api/v1/audio/transcriptions
 ## Features
 
 - **Audio Transcription**: Convert speech to text using Whisper
-- **Text Translation**: Translate transcripts to different languages
 - **Study Notes Generation**: AI-powered structured study notes from transcripts
-- **Speech Synthesis**: Convert text back to speech in multiple languages
 - **YouTube Support**: Download and transcribe audio from YouTube videos
 - **Recommendation and tracking**: it detect your level according to the format of studying and store history and recommend the next 5 topics and the sources
 
-
 ## File Structure
 
-- `openrouter.py` - OpenRouter API integration
-- `tab1.py` - Core transcription and notes generation features
-- `tab5.py` - User data management ,level detection, recommendation system 
+- `config.py` - OpenRouter API integration
+- `tab1.py` - audio extraction , transcription
+-  `notes_generation` - Core transcription , notes generation features
+- `tab4.py` - recommendation system 
 - `nexora3.py` - Main application entry point
 - `.env` - Environment variables (local only, not in git)
 - `.gitignore` - Git ignore rules
