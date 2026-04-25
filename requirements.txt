@@ -10,3 +10,5 @@ langchain-community
 ollama
 whisper
 langchain-groq
+gTTS
+pyttsx3
