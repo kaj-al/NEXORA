@@ -1,4 +1,5 @@
 
+import arxiv
 import requests 
 import os
 import yt_dlp
@@ -6,18 +7,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# def papers(query):
-#     search = arxiv.Search(query=query,max_results=5)
+def papers(query):
+    search = arxiv.Search(query=query,max_results=5)
 
-#     papers = []
+    papers = []
 
-#     for result in search.results():
-#         papers.append({
-#             "title":result.title,
-#             "url":result.entry_id
-#         })
+    for result in search.results():
+        papers.append({
+            "title":result.title,
+            "url":result.entry_id
+        })
 
-#     return papers
+    return papers
 
 def documentation(query):
     url = "https://google.serper.dev/search"
@@ -50,17 +51,16 @@ def youtube(query):
     videos = []
     for entry in results["entries"]:
         id = entry.get("id")
+        thumbnail = entry.get("thumbnail")
+        if not thumbnail and id:
+            thumbnail = f"https://img.youtube.com/vi/{id}/hqdefault.jpg"
         videos.append({
             "title":entry.get("title"),
             "url":f"https://www.youtube.com/watch?v={id}",
-            "duration":entry.get("duration"), #convert in minutes and seconds
+            "duration":entry.get("duration"),
             "channel":entry.get("uploader"),
-            "thumbnail":entry.get("thumbnail"),
+            "thumbnail":thumbnail
         })
     return videos
 
 
-
-
- 
-    

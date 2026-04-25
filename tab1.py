@@ -2,13 +2,13 @@
 import os
 from moviepy import VideoFileClip
 import whisper
-import requests 
+import requests
 import yt_dlp
 from pathlib import Path
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
- 
-def create_requests_session(retries=3, backoff_factor=0.5, timeout=30):
+
+def create_requests_session(retries=3, backoff_factor=0.5):
     session = requests.Session()
     retry_strategy = Retry(
         total=retries,
@@ -82,4 +82,3 @@ def extract_audio(video_path, audio_ext=".wav"):
     clip.audio.write_audiofile(audio_path)
     clip.close()
     return audio_path
-
