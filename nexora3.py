@@ -8,6 +8,7 @@ from config import llm_model,model_size,openrouter_key_input
 from tab1 import call_openrouter,load_whisper_model, download_audio_fast, extract_audio
 from tab4 import documentation,youtube,papers
 from transcription import process_audio
+from auth import auth_screen
 
 
 # ============ CACHE & SESSION STATE INITIALIZATION ============
@@ -256,6 +257,17 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+#  authorization
+# check login
+if "user" not in st.session_state:
+    auth_screen()
+    st.stop()
+
+# after login
+user = st.session_state.user
+user_id = user["localid"]
+st.success(f"Welcome{user["email"]}")
 
 # ---------------- HOME ----------------
 with tabs[0]:
