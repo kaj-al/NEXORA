@@ -12,3 +12,7 @@ whisper
 langchain-groq
 gTTS
 pyttsx3
+firebase-admin
+fastapi
+datetime
+uvicorn
