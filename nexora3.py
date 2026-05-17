@@ -2,14 +2,23 @@
 import streamlit as st
 import tempfile
 import os
+import pandas as pd
 import requests
 import random
-from config import llm_model,model_size,openrouter_key_input
-from tab1 import call_openrouter,load_whisper_model, download_audio_fast, extract_audio
-from tab4 import documentation,youtube,papers
+import time
+from config import llm_model, model_size, openrouter_key_input
+from tab1 import call_openrouter, load_whisper_model, download_audio_fast, extract_audio
+from tab4 import documentation, youtube, papers
 from transcription import process_audio
-from auth import auth_screen
-
+from fire_auth import auth_screen, logout
+from activity import (
+    log_user_event,
+    start_user_session,
+    end_user_session,
+    get_recent_activity,
+    get_recent_sessions,
+    get_user_analytics,
+)
 
 # ============ CACHE & SESSION STATE INITIALIZATION ============
 @st.cache_resource
@@ -50,11 +59,20 @@ def on_generate_assessment():
     st.session_state.generating_assessment = True
 
 # ---------------- PAGE CONFIG ----------------
-st.set_page_config(page_title="Nexora", layout="wide", initial_sidebar_state="expanded")
-st.markdown(
-    "<h1 style='text-align:center; color:#E75480; font-family: \"Hero\", \"Tan Aegan\", sans-serif; margin-bottom: 0.5rem;'>✨ NEXORA - NEXT GEN NOTES AURA ✨</h1>",
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="Nexora - Next Gen Notes Aura", layout="wide", initial_sidebar_state="expanded", page_icon="✨")
+
+# Header
+st.markdown("""
+<div style='background: linear-gradient(135deg, #E75480, #FFE5B4); padding: 20px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);'>
+    <div style='display: flex; align-items: center; justify-content: center; gap: 15px;'>
+        <div style='font-size: 3em;'></div>
+        <div>
+            <h1 style='text-align: center; color: white; font-family: "Hero", "Tan Aegan", sans-serif; margin: 0; font-size: 2.5em;'>NEXORA</h1>
+            <p style='text-align: center; color: white; font-family: "Hero", "Tan Aegan", sans-serif; margin: 0; font-size: 1.2em;'>Next Gen Notes Aura</p>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------- STYLE ---------------- 
 st.markdown("""
@@ -93,7 +111,6 @@ if st.session_state["whisper_model_size"] != model_size:
 model = load_whisper_model(model_size)
 
 # ---------------- MAIN TABS ----------------
-tabs = st.tabs(["Home", "Audio Extraction & Transcription", "Study Notes", "Asessment Paper","Recommendation"])
 
 # Pastel Zen Theme + White Tabs Text
 st.markdown("""
@@ -258,66 +275,151 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-#  authorization
-# check login
+def ensure_running_user_session(user_id: str, user_email: str):
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = start_user_session(user_id)
+        st.session_state.session_start = time.time()
+        log_user_event(
+            user_id,
+            "session.start",
+            {"email": user_email},
+            session_id=st.session_state.session_id,
+        )
+
+tab_home, tab_audio, tab_notes, tab_assessment, tab_recommendation = st.tabs(["Home", "Audio Extraction & Transcription", "Study Notes", " Assessment Paper", "Recommendation"])
+
+# Authorization
 if "user" not in st.session_state:
-    auth_screen()
+    with tab_home:
+        auth_screen()
+    with tab_audio:
+        st.info("Please log in to access audio extraction & transcription.")
+    with tab_notes:
+        st.info("Please log in to access study notes.")
+    with tab_assessment:
+        st.info("Please log in to access assessment generation.")
+    with tab_recommendation:
+        st.info("Please log in to access resource recommendations.")
     st.stop()
 
-# after login
 user = st.session_state.user
-user_id = user["localid"]
-st.success(f"Welcome{user["email"]}")
+user_id = user.get("localId") or user.get("uid")
+if not user_id:
+    st.error("Unable to determine user id from session. Please log in again.")
+    st.stop()
+user_email = user.get("email", "Unknown")
+ensure_running_user_session(user_id, user_email)
+
+with st.sidebar:
+    st.markdown("""
+    <div style='background: #FFF5E6; padding: 20px; border-radius: 15px; margin-bottom: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.1);'>
+        <h3 style='color: #E75480; text-align: center; margin-bottom: 15px;'>Account</h3>
+        <p style='color: #7B2C6F; font-weight: bold;'>Signed in as:</p>
+        <p style='color: #E75480;'>{}</p>
+    </div>
+    """.format(user_email), unsafe_allow_html=True)
+    
+    if st.button("Logout", key="logout"):
+        log_user_event(user_id, "session.logout", {"email": user_email}, session_id=st.session_state.get("session_id"))
+        end_user_session(user_id, st.session_state.get("session_id"))
+        logout()
+
+    st.markdown("---")
+    st.markdown("## Session Summary")
+    st.write(f"Session started: {time.strftime('%H:%M:%S', time.localtime(st.session_state.session_start))}")
+    st.write(f"Current session id: {st.session_state.session_id}")
+
+    analytics = get_user_analytics(user_id)
+    if analytics["sessions"]:
+        st.markdown("### Recent Sessions")
+        for session in analytics["sessions"][:3]:
+            duration = session.get("duration_seconds", 0)
+            active = session.get("active", False)
+            st.write(f"• {session.get('start_time')} — {int(duration)}s — {'active' if active else 'ended'}")
+
+    if analytics["activity"]:
+        st.markdown("### Recent Activity")
+        for activity in analytics["activity"][:5]:
+            ts = activity.get("timestamp")
+            st.write(f"• {ts}: {activity.get('event_type')}")
 
 # ---------------- HOME ----------------
-with tabs[0]:
+with tab_home:
     st.markdown(
         """
         <div class='hero'>
-            <div class='hero-title'>Nexora</div>
-            <div class='hero-text'>A deploy-ready study workspace for video lectures, transcription, notes, and AI assessment generation.</div>
-            <div style='display:flex;gap:12px;flex-wrap:wrap;'>
-                <span style='background:#E75480;color:white;padding:10px 18px;border-radius:999px;font-weight:600;'>Lecture transcription</span>
-                <span style='background:#FFE5B4;color:#E75480;padding:10px 18px;border-radius:999px;font-weight:600;'>Study notes</span>
-                <span style='background:#E75480;color:white;padding:10px 18px;border-radius:999px;font-weight:600;'>AI assessment</span>
-                <span style='background:#FFE5B4;color:#E75480;padding:10px 18px;border-radius:999px;font-weight:600;'>Resource explorer</span>
+            <div class='hero-title'>Welcome to Nexora</div>
+            <div class='hero-text'>Your deploy-ready study workspace for video lectures, transcription, notes, and AI assessment generation. Transform your learning experience with cutting-edge AI tools.</div>
+            <div style='display:flex;gap:12px;flex-wrap:wrap;justify-content:center;'>
+                <span style='background:#E75480;color:white;padding:10px 18px;border-radius:999px;font-weight:600;'>🎵 Lecture Transcription</span>
+                <span style='background:#FFE5B4;color:#E75480;padding:10px 18px;border-radius:999px;font-weight:600;'>📝 Smart Study Notes</span>
+                <span style='background:#E75480;color:white;padding:10px 18px;border-radius:999px;font-weight:600;'>📋 AI Assessment</span>
+                <span style='background:#FFE5B4;color:#E75480;padding:10px 18px;border-radius:999px;font-weight:600;'>🔍 Resource Explorer</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        """
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("""
         <div class='feature-card'>
-            <div style='display:flex;gap:16px;flex-wrap:wrap;'>
-                <div style='flex:1; min-width:220px; background:#FFF5E6; border-radius:16px; padding:18px;'>
-                    <h4>Fast Voice Transcription</h4>
-                    <p>Convert audio into text quickly with local and remote support.</p>
-                </div>
-                <div style='flex:1; min-width:220px; background:#FFF5E6; border-radius:16px; padding:18px;'>
-                    <h4>Smart Study Notes</h4>
-                    <p>Generate summaries, key points, and plans from your lecture text.</p>
-                </div>
-                <div style='flex:1; min-width:220px; background:#FFF5E6; border-radius:16px; padding:18px;'>
-                    <h4>AI Assessment Builder</h4>
-                    <p>Create quizzes and practice papers in one click.</p>
-                </div>
-                <div style='flex:1; min-width:220px; background:#FFF5E6; border-radius:16px; padding:18px;'>
-                    <h4>Recommendation System</h4>
-                    <p>Resource recommend for selected topic - Youtube, Documentations, Research Papers</p>
-                </div>
-            </div>
+            <h4>Fast Voice Transcription</h4>
+            <p>Convert audio into text quickly with local and remote support. Supports multiple formats and sources.</p>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class='feature-card'>
+            <h4>Smart Study Notes</h4>
+            <p>Generate summaries, key points, and personalized study plans from your lecture text using advanced AI.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class='feature-card'>
+            <h4>AI Assessment Builder</h4>
+            <p>Create customized quizzes, MCQs, and descriptive questions tailored to any topic or subject.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
+    # Additional feature card for Recommendation
+    st.markdown("""
+    <div class='feature-card'>
+        <h4>Recommendation System</h4>
+        <p>Discover curated resources for your topics - YouTube videos, documentation, and research papers tailored to your learning level.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
+    if st.button("Show Analytics", use_container_width=True):
+        analytics = get_user_analytics(user_id)
+        log_user_event(user_id, "analytics.view", {}, session_id=st.session_state.get("session_id"))
 
+        sessions = analytics.get("sessions", [])
+        activity = analytics.get("activity", [])
+
+        if sessions:
+            df = pd.DataFrame(sessions)
+            st.subheader("Learning Sessions")
+            st.dataframe(df)
+            if "duration_seconds" in df.columns:
+                st.subheader("Session duration (seconds)")
+                st.line_chart(df["duration_seconds"].fillna(0))
+        else:
+            st.info("No session history found yet.")
+
+        if activity:
+            st.subheader("Recent activity")
+            activity_df = pd.DataFrame(activity)
+            st.dataframe(activity_df)
+        else:
+            st.info("No user activity has been recorded yet.")
 
 # ---------------- VIDEO Audio TAB ----------------
-with tabs[1]:
+with tab_audio:
     st.markdown("""
         <div class='section'>
             <h2>Audio Extraction & Transcription</h2>
@@ -353,6 +455,12 @@ with tabs[1]:
 
                         progress_bar.progress(75)
                         st.session_state["org_audio"] = audio_file
+                        log_user_event(
+                            user_id,
+                            "audio.extract",
+                            {"source": "upload"},
+                            session_id=st.session_state.get("session_id"),
+                        )
 
                         progress_bar.progress(100)
                         status_text.success("Audio extracted successfully!")
@@ -406,9 +514,15 @@ with tabs[1]:
 
                         st.audio(audio_path)
                         st.session_state["org_audio"] = audio_path
+                        log_user_event(
+                            user_id,
+                            "audio.download",
+                            {"source": "youtube", "url": yt_url},
+                            session_id=st.session_state.get("session_id"),
+                        )
 
                         st.download_button(
-                            label="⬇Download Audio File",
+                            label="Download Audio File",
                             data=open(audio_path, "rb").read(),
                             file_name="youtube_audio.wav",
                             mime="audio/wav",
@@ -455,6 +569,12 @@ with tabs[1]:
 
                     progress_bar.progress(100)
                     status_text.success("Transcription complete!")
+                    log_user_event(
+                        user_id,
+                        "transcription.complete",
+                        {"length": len(transcript)},
+                        session_id=st.session_state.get("session_id"),
+                    )
 
                     st.subheader("Your Transcript")
                     st.markdown(f"<div class='box'>{transcript}</div>", unsafe_allow_html=True)
@@ -476,7 +596,7 @@ with tabs[1]:
             st.error(f"Error processing file: {str(e)}")
 
 # ---------------- STUDY Notes TAB ----------------
-with tabs[2]:
+with tab_notes:
     st.markdown("""
         <div class='section'>
             <h2>Study Notes & Plan Generator</h2>
@@ -504,7 +624,7 @@ with tabs[2]:
                 notes_submitted = st.form_submit_button("Generate Notes", use_container_width=True)
 
                 if notes_submitted:
-                    with st.spinner("✨ Generating your notes..."):
+                    with st.spinner("Generating your notes..."):
                         try:
                             prompt = f"Generate structured study notes, key points, and a short summary from this text:\n\n{user_text}"
                             notes_out = call_openrouter(openrouter_key_input, prompt, model=llm_model)
@@ -514,6 +634,12 @@ with tabs[2]:
                             else:
                                 st.session_state.generated_notes = notes_out
                                 st.success("Notes generated successfully!")
+                                log_user_event(
+                                    user_id,
+                                    "notes.generated",
+                                    {"length": len(notes_out)},
+                                    session_id=st.session_state.get("session_id"),
+                                )
                         except Exception as e:
                             st.error(f"Error: {str(e)}")
 
@@ -544,6 +670,12 @@ with tabs[2]:
                             else:
                                 st.session_state.study_plan = plan
                                 st.success("Study plan created successfully!")
+                                log_user_event(
+                                    user_id,
+                                    "study_plan.created",
+                                    {"length": len(plan)},
+                                    session_id=st.session_state.get("session_id"),
+                                )
                         except Exception as e:
                             st.error(f"Error: {str(e)}")
 
@@ -572,9 +704,15 @@ with tabs[2]:
                 "Review your notes within 24 hours to improve retention."
             ]
             st.info(f"{random.choice(study_tips)}")
+            log_user_event(
+                user_id,
+                "tip.viewed",
+                {},
+                session_id=st.session_state.get("session_id"),
+            )
 
 # ----------------- AI Assessment Generator -----------------
-with tabs[3]:
+with tab_assessment:
     st.markdown("""
         <div class='section'>
             <h2>AI Assessment Paper Generator</h2>
@@ -624,6 +762,12 @@ with tabs[3]:
                         result = response.json()
                         ai_output = result["choices"][0]["message"]["content"]
                         st.session_state.assessment_result = ai_output
+                        log_user_event(
+                            user_id,
+                            "assessment.generated",
+                            {"topic": topic, "difficulty": difficulty, "num_questions": num_questions, "length": len(ai_output)},
+                            session_id=st.session_state.get("session_id"),
+                        )
 
                         progress_bar.progress(100)
                         status_text.success("Assessment paper generated successfully!")
@@ -664,24 +808,7 @@ with tabs[3]:
         elif submitted and not topic:
             st.warning("Please enter a topic before generating the assessment paper.")
 
-# # ---------------- ABOUT TAB ----------------
-# with tabs[5]:
-#     st.header("About Nexora")
-#     st.markdown("""
-#     *Nexora* combines:
-#     - Whisper for transcription (local model)
-#     - OpenRouter LLMs for notes & study plans
-#     - YouTube & local video support
-#     - Lightweight local saving for a simple knowledge base
-
-#     *How to use*
-#     1. Choose Video Notes or Study Assistant.
-#     2. Gives an assesment.
-#     3. Generate, review, save, and download.
-
-#     """)
-
-with tabs[4]:
+with tab_recommendation:
 
     st.markdown("""
         <div class='feature-card'>
@@ -724,6 +851,12 @@ with tabs[4]:
 
                     progress_bar.progress(100)
                     status_text.success(f"Found {len(videos)} videos, {len(docs)} docs, and {len(papers_list)} papers!")
+                    log_user_event(
+                        user_id,
+                        "resources.explore",
+                        {"topic": topic, "level": level, "videos": len(videos), "docs": len(docs), "papers": len(papers_list)},
+                        session_id=st.session_state.get("session_id"),
+                    )
 
                     # Videos 
                     st.markdown("<div class='section'><h3>Recommended Videos</h3></div>", unsafe_allow_html=True)
@@ -733,7 +866,7 @@ with tabs[4]:
                                 col_v1, col_v2 = st.columns([3, 1])
                                 with col_v1:
                                     st.markdown(
-                                        f"<div class='box'><strong><a href='{video['url']}' target='_blank'>▶️ {video['title']}</a></strong><br>"
+                                        f"<div class='box'><strong><a href='{video['url']}' target='_blank'>{video['title']}</a></strong><br>"
                                         f"<span style='color:#7B2C6F; font-size: 0.9em;'>Channel: {video.get('channel','Unknown')}</span></div>",
                                         unsafe_allow_html=True
                                     )
@@ -765,3 +898,13 @@ with tabs[4]:
 
         elif explore_btn and not topic:
             st.warning("Please enter a topic to explore resources.")
+
+# Professional Footer
+st.markdown("""
+<div style='background: linear-gradient(135deg, #FFE5B4, #E75480); padding: 20px; border-radius: 15px; margin-top: 40px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.1);'>
+    <p style='color: white; font-family: "Hero", "Tan Aegan", sans-serif; margin: 0; font-size: 1.1em;'>
+        Powered by Nexora - Next Gen Notes Aura<br>
+        Built with using Streamlit | © 2024 All Rights Reserved
+    </p>
+</div>
+""", unsafe_allow_html=True)
