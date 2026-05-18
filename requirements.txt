@@ -16,3 +16,14 @@ firebase-admin
 fastapi
 datetime
 uvicorn
+functools
+uuid
+typing
+os
+pandas
+time
+pathlib
+requests-adapters
+urllib3-util
+arxiv
+langchain-core
