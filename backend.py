@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timezone
 from typing import Optional
 
-from firebase_client import get_firestore_client
+from fire_client import get_firestore_client
 
 app = FastAPI(title="Nexora Backend API")
 
@@ -26,7 +26,7 @@ def verify_user_id(authorization: Optional[str] = Header(None)) -> str:
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization header")
     
-    # Authorization header format: "Bearer <user_id>"
+    # Authorization header 
     parts = authorization.split()
     if len(parts) != 2 or parts[0] != "Bearer":
         raise HTTPException(status_code=401, detail="Invalid authorization header format")
