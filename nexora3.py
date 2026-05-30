@@ -755,7 +755,7 @@ with tab_assessment:
                     }
 
                     progress_bar.progress(50)
-                    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=120)
+                    response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=120)
                     progress_bar.progress(75)
 
                     if response.status_code == 200:
