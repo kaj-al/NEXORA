@@ -1,6 +1,6 @@
 
 from faster_whisper import WhisperModel
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq 
 from langchain_core.prompts import ChatPromptTemplate
 import streamlit as st
 import os
@@ -15,9 +15,9 @@ def load_models():
         compute_type="int8",
         cpu_threads=8
     )
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",   
-        groq_api_key=os.getenv("OPENROUTER_API_KEY")
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",   
+        groq_api_key=os.getenv("GROQ_API_KEY")
     )
     return whisper, llm
 
